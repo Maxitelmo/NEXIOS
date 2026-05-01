@@ -93,7 +93,8 @@ class DevicePanel(ctk.CTkFrame):
         self._lista_devs.delete("1.0", "end")
         if devs:
             for d in devs:
-                self._lista_devs.insert("end", f"  {d.get('udid')}  ({d.get('connection_type', 'USB')})\n")
+                ios_tag = f"  iOS {d['ios_version']}" if d.get("ios_version") else ""
+                self._lista_devs.insert("end", f"  {d.get('udid')}  [{d.get('connection_type', 'USB')}]{ios_tag}\n")
             self._btn_conectar.configure(state="normal")
             self.mw.set_status(f"{len(devs)} dispositivo(s) encontrado(s)", "ok")
         else:

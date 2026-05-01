@@ -100,6 +100,13 @@ a = Analysis(
         'pymobiledevice3.services.lockdown_service',
         'pymobiledevice3.services.heartbeat',
         'pymobiledevice3.services.amfi',
+        'pymobiledevice3.remote',
+        'pymobiledevice3.remote.common',
+        'pymobiledevice3.remote.tunnel_service',
+        'pymobiledevice3.remote.remote_service_discovery',
+        'pymobiledevice3.remote.remotexpc',
+        'pymobiledevice3.remote.utils',
+        'pymobiledevice3.bonjour',
 
         # ── stdlib / deps ────────────────────────────────────────────────────
         'sqlite3',
