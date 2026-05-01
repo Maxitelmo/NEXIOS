@@ -1,15 +1,16 @@
 # device_service.py
-# Detección, pairing e información del dispositivo iOS vía pymobiledevice3.
+# Detección, pairing e información del dispositivo iOS vía pymobiledevice3 v9 (async).
+# Toda la API de pymobiledevice3 v9 es async — los wrappers sync usan asyncio.run().
 
+import asyncio
 import logging
 from typing import Optional
 
 _log = logging.getLogger(__name__)
 
-# ── pymobiledevice3 imports ────────────────────────────────────────────────────
 try:
-    from pymobiledevice3.usbmux import create_mux
-    from pymobiledevice3.lockdown import create_using_usbmux, LockdownClient
+    from pymobiledevice3.usbmux import list_devices, MuxDevice
+    from pymobiledevice3.lockdown import create_using_usbmux, UsbmuxLockdownClient
     _PMD3_AVAILABLE = True
 except ImportError:
     _PMD3_AVAILABLE = False
@@ -20,108 +21,114 @@ def pmd3_disponible() -> bool:
     return _PMD3_AVAILABLE
 
 
+# ── Wrappers sync (para uso desde UI/threads) ──────────────────────────────────
+
 def listar_dispositivos() -> list[dict]:
     """
     Devuelve lista de dispositivos iOS conectados por USB.
-    Cada elemento: { "udid": str, "nombre": str }
+    Cada elemento: { "udid": str }
     """
     if not _PMD3_AVAILABLE:
         return []
     try:
-        with create_mux() as mux:
-            devices = mux.devices
-        return [{"udid": d.serial, "nombre": getattr(d, "name", d.serial)} for d in devices]
+        return asyncio.run(_listar_dispositivos_async())
     except Exception as e:
         _log.error("Error listando dispositivos: %s", e)
         return []
 
 
-def conectar(udid: Optional[str] = None) -> Optional["LockdownClient"]:
+def conectar(udid: Optional[str] = None) -> Optional["UsbmuxLockdownClient"]:
     """
     Conecta al dispositivo (primero si udid es None) y devuelve el LockdownClient.
-    El cliente queda disponible para obtener servicios. Cierra la conexión al salir del with.
     El pairing record se guarda automáticamente por pymobiledevice3.
     """
     if not _PMD3_AVAILABLE:
         _log.error("pymobiledevice3 no disponible")
         return None
     try:
-        lockdown = create_using_usbmux(serial=udid)
-        _log.info(
-            "Dispositivo conectado: %s (%s) iOS %s",
-            lockdown.get_value("DeviceName"),
-            lockdown.get_value("UniqueDeviceID"),
-            lockdown.get_value("ProductVersion"),
-        )
-        return lockdown
+        return asyncio.run(_conectar_async(udid))
     except Exception as e:
         _log.error("Error conectando al dispositivo: %s", e)
         return None
 
 
-def obtener_info_dispositivo(lockdown: "LockdownClient") -> dict:
+def obtener_info_dispositivo(lockdown: "UsbmuxLockdownClient") -> dict:
     """
     Extrae información técnica completa del dispositivo.
 
     Returns:
-        Dict con: nombre, modelo, ios_version, serial, imei, capacidad_gb,
-                  bateria_pct, udid, nombre_hw, build_version.
+        Dict con: nombre, modelo, modelo_str, ios_version, build_version,
+                  serial, imei, udid, nombre_hw, capacidad_gb, bateria_pct, color, cpu_arch.
     """
-    def _get(key: str, default: str = "") -> str:
-        try:
-            val = lockdown.get_value(key)
-            return str(val) if val is not None else default
-        except Exception:
-            return default
-
-    def _get_domain(domain: str, key: str, default: str = "") -> str:
-        try:
-            val = lockdown.get_value(key, domain=domain)
-            return str(val) if val is not None else default
-        except Exception:
-            return default
-
-    # Capacidad total en GB
-    total_bytes = lockdown.get_value("TotalDiskCapacity") or 0
     try:
-        capacidad_gb = f"{int(total_bytes) / 1_000_000_000:.1f} GB"
-    except Exception:
-        capacidad_gb = ""
-
-    # Nivel de batería
-    bateria_raw = _get_domain("com.apple.mobile.battery", "BatteryCurrentCapacity")
-    bateria_pct = f"{bateria_raw}%" if bateria_raw else ""
-
-    return {
-        "nombre":        _get("DeviceName"),
-        "modelo":        _get("ProductType"),
-        "modelo_str":    _get("MarketingName") or _get("ProductType"),
-        "ios_version":   _get("ProductVersion"),
-        "build_version": _get("BuildVersion"),
-        "serial":        _get("SerialNumber"),
-        "imei":          _get("InternationalMobileEquipmentIdentity"),
-        "udid":          _get("UniqueDeviceID"),
-        "nombre_hw":     _get("HardwareModel"),
-        "capacidad_gb":  capacidad_gb,
-        "bateria_pct":   bateria_pct,
-        "color":         _get("DeviceColor"),
-        "cpu_arch":      _get("CPUArchitecture"),
-    }
+        return asyncio.run(_obtener_info_async(lockdown))
+    except Exception as e:
+        _log.error("Error obteniendo info del dispositivo: %s", e)
+        return {}
 
 
-def hacer_pairing(lockdown: "LockdownClient") -> bool:
+def hacer_pairing(lockdown: "UsbmuxLockdownClient") -> bool:
     """
     Inicia el proceso de pairing. El iPhone mostrará 'Confiar en esta computadora'.
-    El pairing record se persiste automáticamente por pymobiledevice3.
-
-    Returns True si el pairing fue exitoso.
+    El pairing record se persiste automáticamente.
+    Returns True si exitoso.
     """
     if not _PMD3_AVAILABLE:
         return False
     try:
-        lockdown.pair()
-        _log.info("Pairing exitoso con %s", lockdown.get_value("UniqueDeviceID"))
+        asyncio.run(lockdown.pair())
+        _log.info("Pairing exitoso")
         return True
     except Exception as e:
         _log.error("Error en pairing: %s", e)
         return False
+
+
+# ── Implementaciones async ─────────────────────────────────────────────────────
+
+async def _listar_dispositivos_async() -> list[dict]:
+    devices: list[MuxDevice] = await list_devices()
+    return [{"udid": d.serial, "connection_type": d.connection_type} for d in devices]
+
+
+async def _conectar_async(udid: Optional[str]) -> "UsbmuxLockdownClient":
+    lockdown = await create_using_usbmux(serial=udid)
+    nombre  = await lockdown.get_value(key="DeviceName")
+    ios     = await lockdown.get_value(key="ProductVersion")
+    udid_   = await lockdown.get_value(key="UniqueDeviceID")
+    _log.info("Dispositivo conectado: %s iOS %s (%s)", nombre, ios, udid_)
+    return lockdown
+
+
+async def _obtener_info_async(lockdown: "UsbmuxLockdownClient") -> dict:
+    async def get(key: str, domain: str = None) -> str:
+        try:
+            val = await lockdown.get_value(domain=domain, key=key)
+            return str(val) if val is not None else ""
+        except Exception:
+            return ""
+
+    total_bytes_raw = await lockdown.get_value(key="TotalDiskCapacity")
+    try:
+        capacidad_gb = f"{int(total_bytes_raw) / 1_000_000_000:.1f} GB"
+    except Exception:
+        capacidad_gb = ""
+
+    bateria_raw = await lockdown.get_value(domain="com.apple.mobile.battery", key="BatteryCurrentCapacity")
+    bateria_pct = f"{bateria_raw}%" if bateria_raw is not None else ""
+
+    return {
+        "nombre":        await get("DeviceName"),
+        "modelo":        await get("ProductType"),
+        "modelo_str":    await get("MarketingName") or await get("ProductType"),
+        "ios_version":   await get("ProductVersion"),
+        "build_version": await get("BuildVersion"),
+        "serial":        await get("SerialNumber"),
+        "imei":          await get("InternationalMobileEquipmentIdentity"),
+        "udid":          await get("UniqueDeviceID"),
+        "nombre_hw":     await get("HardwareModel"),
+        "capacidad_gb":  capacidad_gb,
+        "bateria_pct":   bateria_pct,
+        "color":         await get("DeviceColor"),
+        "cpu_arch":      await get("CPUArchitecture"),
+    }

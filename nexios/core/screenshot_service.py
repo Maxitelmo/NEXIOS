@@ -1,8 +1,13 @@
 # screenshot_service.py
-# Captura de pantalla del iPhone vía ScreenshotService (pymobiledevice3).
+# Captura de pantalla del iPhone vía ScreenshotService (pymobiledevice3 v9).
 # iOS 15-: directo. iOS 16+: requiere Developer Mode activo.
 # Toda activación de Developer Mode queda registrada en la cadena de custodia.
+#
+# NOTA: En v9 no existe un método para consultar el estado de Developer Mode
+# sin activarlo. La detección se hace por versión de iOS + intento de captura:
+# si falla con error específico, se informa al operador.
 
+import asyncio
 import io
 import logging
 import os
@@ -16,7 +21,7 @@ from nexios.utils.forensic_log_chain import append_evento_forense
 _log = logging.getLogger(__name__)
 
 try:
-    from pymobiledevice3.services.screenshotr import ScreenshotService
+    from pymobiledevice3.services.screenshot import ScreenshotService
     _PMD3_AVAILABLE = True
 except ImportError:
     _PMD3_AVAILABLE = False
@@ -29,7 +34,6 @@ except ImportError:
 
 
 def _parse_ios_version(version_str: str) -> tuple[int, int]:
-    """Devuelve (major, minor) de una cadena '16.4.1'."""
     try:
         partes = str(version_str).split(".")
         return int(partes[0]), int(partes[1]) if len(partes) > 1 else 0
@@ -39,39 +43,29 @@ def _parse_ios_version(version_str: str) -> tuple[int, int]:
 
 def verificar_developer_mode(lockdown) -> dict:
     """
-    Consulta si Developer Mode está activo en el dispositivo.
+    Determina si la captura de pantalla estará disponible según la versión de iOS.
+    En v9 no hay un getter de estado de Developer Mode sin activarlo; se informa
+    al operador según la versión y se confirma al intentar la captura real.
 
     Returns:
-        dict con: activo (bool), ios_major (int), requiere_dev_mode (bool), mensaje (str).
+        dict con: ios_version, ios_major, requiere_dev_mode, mensaje.
     """
-    ios_version = ""
     try:
-        ios_version = lockdown.get_value("ProductVersion") or ""
+        ios_version = asyncio.run(_get_ios_version(lockdown))
     except Exception:
-        pass
+        ios_version = ""
     ios_major, _ = _parse_ios_version(ios_version)
     requiere = ios_major >= 16
-
-    activo = False
-    if requiere:
-        try:
-            resultado = lockdown.get_value("DeveloperModeStatus", domain="com.apple.amfi")
-            activo = bool(resultado)
-        except Exception:
-            # Si el dominio no responde, asumimos no activo
-            activo = False
-    else:
-        # iOS 15 y anteriores: no hay restricción
-        activo = True
-
     return {
-        "activo": activo,
-        "ios_version": ios_version,
-        "ios_major": ios_major,
+        "ios_version":     ios_version,
+        "ios_major":       ios_major,
         "requiere_dev_mode": requiere,
         "mensaje": (
-            "Developer Mode activo — captura disponible." if activo
-            else f"iOS {ios_version}: Developer Mode inactivo. El operador debe activarlo desde Ajustes → Privacidad y seguridad → Developer Mode."
+            f"iOS {ios_version}: captura disponible sin restricciones."
+            if not requiere else
+            f"iOS {ios_version}: requiere Developer Mode activo "
+            f"(Ajustes → Privacidad y seguridad → Developer Mode). "
+            f"Se confirmará al intentar la primera captura."
         ),
     }
 
@@ -86,65 +80,48 @@ def capturar_pantalla(
 ) -> dict:
     """
     Captura la pantalla del dispositivo y guarda el PNG en carpeta_capturas.
-
-    Args:
-        lockdown: LockdownClient conectado.
-        carpeta_capturas: Carpeta donde se guarda la captura.
-        carpeta_relevamiento: Carpeta raíz del relevamiento (para log).
-        operador: Nombre del operador (para el log).
-        descripcion: Descripción opcional de la captura.
-        numero: Número correlativo de la captura en el expediente.
+    Si falla por Developer Mode inactivo, lo indica claramente en el mensaje.
 
     Returns:
         dict con: ok, ruta_local, sha256, timestamp, mensaje.
     """
     resultado = {"ok": False, "ruta_local": "", "sha256": "", "timestamp": "", "mensaje": ""}
-
     if not _PMD3_AVAILABLE:
         resultado["mensaje"] = "pymobiledevice3 no disponible"
         return resultado
     if not _PIL_AVAILABLE:
         resultado["mensaje"] = "Pillow no disponible"
         return resultado
-
-    # Verificar Developer Mode antes de intentar la captura
-    estado_dm = verificar_developer_mode(lockdown)
-    if not estado_dm["activo"]:
-        resultado["mensaje"] = estado_dm["mensaje"]
-        append_evento_forense(
-            carpeta_relevamiento,
-            f"CAPTURA BLOQUEADA: Developer Mode inactivo en iOS {estado_dm['ios_version']} | operador={operador}"
-        )
-        return resultado
-
     try:
         os.makedirs(carpeta_capturas, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         nombre_archivo = f"captura_{numero:03d}_{timestamp}.png"
         ruta_local = safe_join_and_validate(carpeta_capturas, nombre_archivo)
-
-        with ScreenshotService(lockdown) as ss:
-            png_data: bytes = ss.take_screenshot()
-
+        png_data = asyncio.run(_take_screenshot_async(lockdown))
         img = Image.open(io.BytesIO(png_data))
         img.save(ruta_local, "PNG")
-
         sha = calcular_hash(ruta_local)
         resultado.update({"ok": True, "ruta_local": ruta_local, "sha256": sha, "timestamp": timestamp})
-
         append_evento_forense(
             carpeta_relevamiento,
             f"CAPTURA DE PANTALLA: {nombre_archivo} | sha256={sha} | operador={operador}"
             + (f" | desc={descripcion}" if descripcion else "")
         )
         _log.info("Captura guardada: %s", ruta_local)
-
     except Exception as e:
-        resultado["mensaje"] = str(e)
+        msg = str(e)
+        # Detectar error de Developer Mode por mensaje de la excepción
+        if "developer" in msg.lower() or "DeveloperModeError" in type(e).__name__:
+            msg = (
+                "Captura bloqueada: Developer Mode no activo. "
+                "Activarlo desde Ajustes → Privacidad y seguridad → Developer Mode "
+                "y reiniciar el dispositivo."
+            )
+        resultado["mensaje"] = msg
         _log.error("Error capturando pantalla: %s", e)
         append_evento_forense(
             carpeta_relevamiento,
-            f"ERROR CAPTURA: {e} | operador={operador}"
+            f"ERROR CAPTURA: {msg} | operador={operador}"
         )
     return resultado
 
@@ -154,10 +131,45 @@ def registrar_activacion_developer_mode(
 ) -> None:
     """
     Registra en la cadena de custodia que el operador activó Developer Mode.
-    Llamar ANTES de la activación real, para que quede el timestamp de la decisión.
+    Llamar ANTES de la activación para que quede el timestamp de la decisión.
     """
     append_evento_forense(
         carpeta_relevamiento,
         f"DEVELOPER MODE ACTIVADO POR OPERADOR: iOS {ios_version} | operador={operador} "
         f"| NOTA: activación implica reinicio del dispositivo y modifica su estado"
     )
+
+
+def activar_developer_mode(lockdown) -> bool:
+    """
+    Activa Developer Mode vía AmfiService (iOS 16+).
+    Nota: requiere reinicio del dispositivo — el proceso es asistido por pymobiledevice3.
+    Returns True si se inició el proceso exitosamente.
+    """
+    if not _PMD3_AVAILABLE:
+        return False
+    try:
+        asyncio.run(_activar_developer_mode_async(lockdown))
+        return True
+    except Exception as e:
+        _log.error("Error activando Developer Mode: %s", e)
+        return False
+
+
+# ── Implementaciones async ─────────────────────────────────────────────────────
+
+async def _get_ios_version(lockdown) -> str:
+    return str(await lockdown.get_value(key="ProductVersion") or "")
+
+
+async def _take_screenshot_async(lockdown) -> bytes:
+    service = await lockdown.start_lockdown_service(ScreenshotService.SERVICE_NAME)
+    async with ScreenshotService(service) as ss:
+        return await ss.take_screenshot()
+
+
+async def _activar_developer_mode_async(lockdown) -> None:
+    from pymobiledevice3.services.amfi import AmfiService
+    service = await lockdown.start_lockdown_service(AmfiService.SERVICE_NAME)
+    async with AmfiService(service) as amfi:
+        await amfi.enable_developer_mode()
