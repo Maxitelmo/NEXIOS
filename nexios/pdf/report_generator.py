@@ -1,13 +1,19 @@
 # report_generator.py
 # Generación del informe forense PDF de NEXIOS.
-# Usa reportlab (mismo patrón que CAPTA — módulos Mixin por sección).
-# TODO: implementar cada sección como un Mixin (portada, técnica, artifacts, capturas, fotos, cadena).
 
 import logging
 import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+
+def _media_path(nombre: str) -> str:
+    """Resuelve la ruta de un archivo en /media tanto en dev como en PyInstaller."""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, "media", nombre)
+    return os.path.join(os.path.dirname(__file__), "..", "..", "media", nombre)
 
 _log = logging.getLogger(__name__)
 
@@ -125,6 +131,8 @@ class GeneradorPDF:
         story.append(PageBreak())
         story += self._seccion_cadena_custodia(styles)
         story.append(PageBreak())
+        story += self._seccion_analisis_artifacts(styles)
+        story.append(PageBreak())
         story += self._seccion_acta(styles)
 
         doc.build(story)
@@ -151,7 +159,14 @@ class GeneradorPDF:
             spaceAfter=8,
         )
         normal = styles["Normal"]
-        story.append(Spacer(1, 3 * cm))
+        story.append(Spacer(1, 1.5 * cm))
+        logo_path = _media_path("NEXIOS-LOGO.png")
+        if os.path.isfile(logo_path):
+            try:
+                story.append(RLImage(logo_path, width=5 * cm, height=5 * cm, kind="proportional"))
+                story.append(Spacer(1, 0.6 * cm))
+            except Exception:
+                pass
         story.append(Paragraph("NEXIOS", titulo))
         story.append(Paragraph("Núcleo de Extracción Forense en dispositivos iOS", subtitulo))
         story.append(HRFlowable(width="100%", thickness=2, color=COLOR_PRIMARIO))
@@ -293,6 +308,69 @@ class GeneradorPDF:
             ))
         return story
 
+    def _seccion_analisis_artifacts(self, styles) -> list:
+        """Análisis de artifacts: una subsección por artifact extraído exitosamente."""
+        from nexios.parsers.ios import parsear_artifact
+
+        story = [Paragraph("Análisis de artifacts", styles["Heading1"])]
+        story.append(Spacer(1, 0.3 * cm))
+
+        carpeta_artifacts = os.path.join(self.carpeta, "Artifacts")
+        artifacts_ok = [r for r in self.artifacts if r.get("ok") and r.get("ruta_local")]
+
+        if not artifacts_ok:
+            story.append(Paragraph("No hay artifacts extraídos para analizar.", styles["Normal"]))
+            return story
+
+        MAX_FILAS = 200  # cap por artifact para no generar PDFs gigantes
+
+        for resultado in artifacts_ok:
+            aid      = resultado.get("artifact_id", "")
+            nombre   = resultado.get("nombre", aid)
+            ruta     = resultado.get("ruta_local", "")
+
+            datos, cols = parsear_artifact(aid, ruta)
+
+            story.append(Paragraph(nombre, styles["Heading2"]))
+            story.append(Paragraph(
+                f"Registros encontrados: <b>{len(datos)}</b>"
+                + (f" (mostrando primeros {MAX_FILAS})" if len(datos) > MAX_FILAS else ""),
+                styles["Normal"],
+            ))
+
+            if not datos or not cols:
+                story.append(Paragraph("(sin datos parseables)", styles["Normal"]))
+                story.append(Spacer(1, 0.4 * cm))
+                continue
+
+            # Construir tabla con encabezado + filas (cap a MAX_FILAS)
+            filas = datos[:MAX_FILAS]
+            encabezado = [c.replace("_", " ").title() for c in cols]
+            tabla_datos = [encabezado]
+            for fila in filas:
+                tabla_datos.append([
+                    _cell_value(fila.get(c), c)
+                    for c in cols
+                ])
+
+            ancho_col = 16.6 * cm / len(cols)
+            t = Table(tabla_datos, colWidths=[ancho_col] * len(cols), repeatRows=1)
+            t.setStyle(TableStyle([
+                ("BACKGROUND",    (0, 0), (-1, 0), COLOR_PRIMARIO),
+                ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
+                ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE",      (0, 0), (-1, -1), 7),
+                ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, COLOR_ACENTO]),
+                ("GRID",          (0, 0), (-1, -1), 0.3, colors.grey),
+                ("TOPPADDING",    (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("WORDWRAP",      (0, 0), (-1, -1), True),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 0.6 * cm))
+
+        return story
+
     def _seccion_acta(self, styles) -> list:
         """Acta de Recolección de Evidencia Digital — hoja final firmable."""
         story = [Paragraph("Acta de Recolección de Evidencia Digital", styles["Heading1"])]
@@ -388,3 +466,18 @@ class GeneradorPDF:
         if nombre and modelo:
             return f"{nombre} ({modelo})"
         return nombre or modelo or "Desconocido"
+
+
+def _cell_value(val, col_name: str = "") -> str:
+    """Convierte un valor de celda a string legible para el PDF."""
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return "; ".join(str(v) for v in val[:3]) + ("..." if len(val) > 3 else "")
+    s = str(val)
+    # Truncar columnas de texto libre para no romper la tabla
+    if col_name in ("texto", "url", "snippet", "notas", "ruta_relativa"):
+        return s[:80] + ("…" if len(s) > 80 else "")
+    if col_name in ("bundle_id",):
+        return s[:50] + ("…" if len(s) > 50 else "")
+    return s[:60] + ("…" if len(s) > 60 else "")
