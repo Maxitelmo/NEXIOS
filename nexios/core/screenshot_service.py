@@ -163,13 +163,13 @@ async def _get_ios_version(lockdown) -> str:
 
 
 async def _take_screenshot_async(lockdown) -> bytes:
-    service = await lockdown.start_lockdown_service(ScreenshotService.SERVICE_NAME)
-    async with ScreenshotService(service) as ss:
+    # ScreenshotService(lockdown) llama internamente a start_lockdown_developer_service
+    async with ScreenshotService(lockdown) as ss:
         return await ss.take_screenshot()
 
 
 async def _activar_developer_mode_async(lockdown) -> None:
     from pymobiledevice3.services.amfi import AmfiService
-    service = await lockdown.start_lockdown_service(AmfiService.SERVICE_NAME)
-    async with AmfiService(service) as amfi:
-        await amfi.enable_developer_mode()
+    # AmfiService no es LockdownService — no es context manager, toma lockdown directamente
+    amfi = AmfiService(lockdown)
+    await amfi.enable_developer_mode()
