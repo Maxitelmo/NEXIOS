@@ -8,7 +8,8 @@ import threading
 import customtkinter as ctk
 
 from nexios.core.acquisition_service import ARTIFACTS, extraer_todos
-from nexios.utils.forensic_log_chain import append_evento_forense, init_cadena
+from nexios.utils.forensic_log_chain import append_evento_forense, init_cadena, obtener_y_registrar_hash_final
+from nexios.utils.integrity import generate_manifest_hashes, set_evidence_folder_readonly
 
 _log = logging.getLogger(__name__)
 
@@ -79,7 +80,12 @@ class AcquisitionPanel(ctk.CTkFrame):
             btn_frame, text="⚡  Extraer artifacts seleccionados",
             fg_color=COLOR_BTN, width=240, command=self._iniciar_extraccion,
         )
-        self._btn_extraer.pack(side="left")
+        self._btn_extraer.pack(side="left", padx=(0, 12))
+        self._btn_pdf = ctk.CTkButton(
+            btn_frame, text="📄  Generar informe PDF",
+            fg_color="#3a5a2a", width=200, command=self._generar_pdf, state="disabled",
+        )
+        self._btn_pdf.pack(side="left")
 
         # Barra de progreso y log
         self._progress = ctk.CTkProgressBar(self)
@@ -160,6 +166,61 @@ class AcquisitionPanel(ctk.CTkFrame):
         self._progress.set(1)
         ok  = sum(1 for r in resultados if r.get("ok"))
         err = len(resultados) - ok
+        self.mw.resultados_artifacts = resultados
         self._log(f"\n  ✅ Completado: {ok} ok, {err} no disponibles")
         self._log(f"  📁 Carpeta: {carpeta}")
         self.mw.set_status(f"Extracción completada: {ok}/{len(resultados)} artifacts", "ok")
+        self._btn_pdf.configure(state="normal")
+
+    def _generar_pdf(self) -> None:
+        carpeta = self.mw.carpeta_rel
+        if not carpeta:
+            self.mw.set_status("Sin relevamiento activo", "alerta")
+            return
+        self._btn_pdf.configure(state="disabled", text="Generando PDF...")
+        self._log("\n  Cerrando relevamiento y generando PDF...")
+
+        def run():
+            try:
+                from nexios.pdf.report_generator import GeneradorPDF
+                from version_nexios import __version__
+                hash_final = obtener_y_registrar_hash_final(carpeta)
+                generate_manifest_hashes(
+                    carpeta_relevamiento=carpeta,
+                    version_nexios=__version__,
+                    hash_final_log=hash_final,
+                )
+                gen = GeneradorPDF(
+                    carpeta_relevamiento=carpeta,
+                    expediente=self.entry_exp.get().strip(),
+                    operador=self.entry_op.get().strip(),
+                    info_dispositivo=self.mw.info_disp,
+                    resultados_artifacts=self.mw.resultados_artifacts,
+                    capturas=self.mw.capturas,
+                    fotos_operativo=self.mw.fotos_op,
+                    hash_final_log=hash_final,
+                    version=__version__,
+                )
+                ruta_pdf = gen.exportar_pdf()
+                set_evidence_folder_readonly(carpeta)
+                self.after(0, lambda: self._on_pdf_generado(ruta_pdf))
+            except Exception as e:
+                self.after(0, lambda: self._on_pdf_error(str(e)))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_pdf_generado(self, ruta_pdf: str) -> None:
+        self._btn_pdf.configure(state="normal", text="📄  Generar informe PDF")
+        self._log(f"  ✅ PDF generado: {ruta_pdf}")
+        self._log("  🔒 Carpeta de evidencia en solo lectura")
+        self.mw.set_status(f"PDF generado: {os.path.basename(ruta_pdf)}", "ok")
+        import subprocess
+        try:
+            subprocess.Popen(f'explorer /select,"{ruta_pdf}"')
+        except Exception:
+            pass
+
+    def _on_pdf_error(self, mensaje: str) -> None:
+        self._btn_pdf.configure(state="normal", text="📄  Generar informe PDF")
+        self._log(f"  ❌ Error generando PDF: {mensaje}")
+        self.mw.set_status(f"Error PDF: {mensaje}", "alerta")

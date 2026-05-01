@@ -115,16 +115,19 @@ class ScreenshotPanel(ctk.CTkFrame):
         threading.Thread(target=run, daemon=True).start()
 
     def _on_dm_verificado(self, estado: dict) -> None:
-        if estado["activo"]:
-            self._lbl_dm.configure(text=f"✅ Activo — iOS {estado['ios_version']}", text_color=COLOR_OK)
+        requiere = estado.get("requiere_dev_mode", False)
+        if not requiere:
+            self._lbl_dm.configure(
+                text=f"✅ Sin restricciones — iOS {estado['ios_version']}", text_color=COLOR_OK)
             self._lbl_aviso.configure(text="")
-            self._btn_capturar.configure(state="normal")
-            self.mw.set_status("Developer Mode activo — captura habilitada", "ok")
+            self.mw.set_status("Captura habilitada sin restricciones", "ok")
         else:
-            self._lbl_dm.configure(text=f"❌ Inactivo — iOS {estado['ios_version']}", text_color=COLOR_ALERTA)
+            self._lbl_dm.configure(
+                text=f"⚠️ Requiere Developer Mode — iOS {estado['ios_version']}", text_color=COLOR_ALERTA)
             self._lbl_aviso.configure(text=estado["mensaje"])
-            self._btn_capturar.configure(state="disabled")
-            self.mw.set_status("Developer Mode inactivo — captura no disponible", "alerta")
+            self.mw.set_status("iOS 16+: se necesita Developer Mode activo", "alerta")
+        # Habilitar siempre: si DM está inactivo, capturar_pantalla() informará claramente
+        self._btn_capturar.configure(state="normal")
         self._log(estado["mensaje"])
 
     def _capturar(self) -> None:
@@ -150,6 +153,7 @@ class ScreenshotPanel(ctk.CTkFrame):
         self._btn_capturar.configure(state="normal", text="📸  Capturar pantalla")
         if resultado["ok"]:
             self._capturas.append(resultado)
+            self.mw.capturas.append(resultado)
             self._log(f"  ✅ {resultado['ruta_local']}")
             self._log(f"     SHA-256: {resultado['sha256']}")
             self.mw.set_status(f"Captura #{self._contador} guardada", "ok")

@@ -34,8 +34,12 @@ class MainWindow(ctk.CTk):
         super().__init__()
         self.version     = version
         self.fs          = file_system
-        self.lockdown    = None       # LockdownClient activo
-        self.carpeta_rel = ""         # Carpeta del relevamiento actual
+        self.lockdown             = None  # LockdownClient activo
+        self.carpeta_rel          = ""    # Carpeta del relevamiento actual
+        self.info_disp            = {}    # Poblado por DevicePanel tras conexión
+        self.resultados_artifacts = []    # Poblado por AcquisitionPanel tras extracción
+        self.capturas             = []    # Poblado por ScreenshotPanel por cada captura
+        self.fotos_op             = []    # Poblado por FotosPanel por cada lote importado
         self._build_ui()
 
     def _build_ui(self) -> None:

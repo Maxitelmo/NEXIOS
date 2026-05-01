@@ -149,6 +149,7 @@ class FotosPanel(ctk.CTkFrame):
         self._numero_siguiente += ok
         for r in resultados:
             if r.get("ok"):
+                self.mw.fotos_op.append(r)
                 self._log(f"  ✅ #{r['numero']} {os.path.basename(r['ruta_local'])}  sha={r['sha256'][:12]}...")
             else:
                 self._log(f"  ❌ Error: {r.get('mensaje', '')}")

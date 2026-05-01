@@ -124,6 +124,8 @@ class GeneradorPDF:
             story += self._seccion_fotos_operativo(styles)
         story.append(PageBreak())
         story += self._seccion_cadena_custodia(styles)
+        story.append(PageBreak())
+        story += self._seccion_acta(styles)
 
         doc.build(story)
         self.logger.info("PDF generado: %s", ruta_salida)
@@ -289,6 +291,95 @@ class GeneradorPDF:
                 "verificarse con NEXIOS Verificador.",
                 styles["Normal"],
             ))
+        return story
+
+    def _seccion_acta(self, styles) -> list:
+        """Acta de Recolección de Evidencia Digital — hoja final firmable."""
+        story = [Paragraph("Acta de Recolección de Evidencia Digital", styles["Heading1"])]
+        story.append(HRFlowable(width="100%", thickness=1, color=COLOR_PRIMARIO))
+        story.append(Spacer(1, 0.4 * cm))
+
+        normal = styles["Normal"]
+        bold_style = ParagraphStyle("bold_p", parent=normal, fontName="Helvetica-Bold")
+        campo_style = ParagraphStyle("campo", parent=normal, fontSize=9, leading=14)
+
+        artifacts_ok = [r for r in self.artifacts if r.get("ok")]
+        artifacts_err = [r for r in self.artifacts if not r.get("ok")]
+
+        resumen = (
+            f"En la ciudad de Córdoba, a las {self.timestamp[11:16]} hs. del {self.timestamp[:10]}, "
+            f"el operador <b>{self.operador or '________________'}</b> procedió a realizar la "
+            f"recolección de evidencia digital del dispositivo iOS identificado como "
+            f"<b>{self._nombre_dispositivo()}</b> (IMEI: {self.info_disp.get('imei') or 'N/D'}, "
+            f"Serial: {self.info_disp.get('serial') or 'N/D'}, "
+            f"iOS {self.info_disp.get('ios_version') or 'N/D'}), "
+            f"en el marco del expediente <b>{self.expediente or '________________'}</b>. "
+            f"La herramienta utilizada es <b>NEXIOS v{self.version}</b>, "
+            f"desarrollada por Tec. Maximiliano Facundo Telmo González — Dirección Investigaciones Orgánicas — MPF Córdoba. "
+            f"Se extrajeron <b>{len(artifacts_ok)} artifact(s)</b> de manera exitosa"
+            + (f", mientras que {len(artifacts_err)} no estuvieron disponibles en el dispositivo" if artifacts_err else "")
+            + f". Se realizaron <b>{len(self.capturas)} captura(s) de pantalla</b>"
+            + (f" y se incorporaron <b>{len(self.fotos_op)} fotografía(s) del operador</b>" if self.fotos_op else "")
+            + ". La integridad de la evidencia queda garantizada mediante el sistema de hashes encadenados "
+            f"(SHA-256) cuyo valor final es:"
+        )
+        story.append(Paragraph(resumen, normal))
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(Paragraph(
+            f"<font name='Courier' size='8'>{self.hash_final or 'N/D'}</font>",
+            ParagraphStyle("hash_acta", parent=normal, backColor=COLOR_ACENTO, borderPadding=4),
+        ))
+        story.append(Spacer(1, 0.6 * cm))
+
+        # Tabla de artifacts incorporados
+        if artifacts_ok:
+            story.append(Paragraph("Artifacts incorporados al acta:", bold_style))
+            story.append(Spacer(1, 0.2 * cm))
+            datos_art = [["#", "Nombre", "SHA-256"]]
+            for i, r in enumerate(artifacts_ok, 1):
+                sha = r.get("sha256") or ""
+                datos_art.append([str(i), r.get("nombre", ""), sha])
+            t = Table(datos_art, colWidths=[0.8 * cm, 7 * cm, 8.5 * cm])
+            t.setStyle(TableStyle([
+                ("BACKGROUND",  (0, 0), (-1, 0), COLOR_PRIMARIO),
+                ("TEXTCOLOR",   (0, 0), (-1, 0), colors.white),
+                ("FONTNAME",    (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME",    (2, 1), (2, -1), "Courier"),
+                ("FONTSIZE",    (0, 0), (-1, -1), 7),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, COLOR_ACENTO]),
+                ("GRID",        (0, 0), (-1, -1), 0.3, colors.grey),
+                ("TOPPADDING",  (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 0.6 * cm))
+
+        # Firmas
+        story.append(Spacer(1, 1 * cm))
+        firmas = Table(
+            [
+                ["Firma del operador", "", "Firma del testigo / supervisor"],
+                ["", "", ""],
+                [self.operador or "______________________________", "", "______________________________"],
+                ["Operador NEXIOS — MPF Córdoba", "", "Cargo / Dependencia"],
+            ],
+            colWidths=[7 * cm, 2.3 * cm, 7 * cm],
+        )
+        firmas.setStyle(TableStyle([
+            ("FONTSIZE",    (0, 0), (-1, -1), 9),
+            ("TOPPADDING",  (0, 0), (-1, -1), 3),
+            ("LINEBELOW",   (0, 1), (0, 1), 0.5, colors.black),
+            ("LINEBELOW",   (2, 1), (2, 1), 0.5, colors.black),
+            ("FONTNAME",    (0, 0), (0, 0), "Helvetica-Bold"),
+            ("FONTNAME",    (2, 0), (2, 0), "Helvetica-Bold"),
+        ]))
+        story.append(firmas)
+        story.append(Spacer(1, 1.5 * cm))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
+        story.append(Paragraph(
+            f"Generado automáticamente por NEXIOS v{self.version} — {self.timestamp} — MPF Córdoba",
+            ParagraphStyle("pie", parent=normal, fontSize=7, textColor=colors.grey, alignment=1),
+        ))
         return story
 
     def _nombre_dispositivo(self) -> str:
