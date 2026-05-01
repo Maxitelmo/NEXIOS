@@ -40,8 +40,8 @@ except ImportError:
 
 
 # ── Paleta de colores institucional ────────────────────────────────────────────
-COLOR_PRIMARIO    = colors.HexColor("#1a3a5c")   # Azul MPF oscuro
-COLOR_SECUNDARIO  = colors.HexColor("#2e6da4")   # Azul MPF medio
+COLOR_PRIMARIO    = colors.HexColor("#1a3a5c")
+COLOR_SECUNDARIO  = colors.HexColor("#2e6da4")
 COLOR_ACENTO      = colors.HexColor("#e8f0fa")   # Fondo tabla encabezado
 COLOR_TEXTO       = colors.HexColor("#1a1a1a")
 COLOR_OK          = colors.HexColor("#2d7a2d")
@@ -142,7 +142,7 @@ class GeneradorPDF:
     # ── Secciones ──────────────────────────────────────────────────────────────
 
     def _seccion_portada(self, styles) -> list:
-        """TODO: portada completa con logo MPF, datos del expediente, hashes."""
+        """Portada con logo, datos del expediente y hash final."""
         story = []
         titulo = ParagraphStyle(
             "titulo_portada",
@@ -199,7 +199,7 @@ class GeneradorPDF:
         ))
         story.append(Spacer(1, 1 * cm))
         story.append(Paragraph(
-            "Ministerio Público Fiscal de la Nación — Córdoba",
+            f"Desarrollado por Maximiliano Telmo — https://github.com/Maxitelmo/NEXIOS",
             ParagraphStyle("inst", parent=styles["Normal"], textColor=COLOR_SECUNDARIO, fontSize=9),
         ))
         return story
@@ -385,7 +385,7 @@ class GeneradorPDF:
         artifacts_err = [r for r in self.artifacts if not r.get("ok")]
 
         resumen = (
-            f"En la ciudad de Córdoba, a las {self.timestamp[11:16]} hs. del {self.timestamp[:10]}, "
+            f"A las {self.timestamp[11:16]} hs. del {self.timestamp[:10]}, "
             f"el operador <b>{self.operador or '________________'}</b> procedió a realizar la "
             f"recolección de evidencia digital del dispositivo iOS identificado como "
             f"<b>{self._nombre_dispositivo()}</b> (IMEI: {self.info_disp.get('imei') or 'N/D'}, "
@@ -393,7 +393,7 @@ class GeneradorPDF:
             f"iOS {self.info_disp.get('ios_version') or 'N/D'}), "
             f"en el marco del expediente <b>{self.expediente or '________________'}</b>. "
             f"La herramienta utilizada es <b>NEXIOS v{self.version}</b>, "
-            f"desarrollada por Tec. Maximiliano Facundo Telmo González — Dirección Investigaciones Orgánicas — MPF Córdoba. "
+            f"desarrollada por Maximiliano Telmo (github.com/Maxitelmo/NEXIOS). "
             f"Se extrajeron <b>{len(artifacts_ok)} artifact(s)</b> de manera exitosa"
             + (f", mientras que {len(artifacts_err)} no estuvieron disponibles en el dispositivo" if artifacts_err else "")
             + f". Se realizaron <b>{len(self.capturas)} captura(s) de pantalla</b>"
@@ -439,7 +439,7 @@ class GeneradorPDF:
                 ["Firma del operador", "", "Firma del testigo / supervisor"],
                 ["", "", ""],
                 [self.operador or "______________________________", "", "______________________________"],
-                ["Operador NEXIOS — MPF Córdoba", "", "Cargo / Dependencia"],
+                ["Operador NEXIOS", "", "Cargo / Dependencia"],
             ],
             colWidths=[7 * cm, 2.3 * cm, 7 * cm],
         )
@@ -455,7 +455,7 @@ class GeneradorPDF:
         story.append(Spacer(1, 1.5 * cm))
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.grey))
         story.append(Paragraph(
-            f"Generado automáticamente por NEXIOS v{self.version} — {self.timestamp} — MPF Córdoba",
+            f"Generado automáticamente por NEXIOS v{self.version} — {self.timestamp}",
             ParagraphStyle("pie", parent=normal, fontSize=7, textColor=colors.grey, alignment=1),
         ))
         return story

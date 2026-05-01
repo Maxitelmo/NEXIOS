@@ -3,12 +3,21 @@
 # Orquesta los paneles: device, acquisition, screenshot, fotos.
 
 import logging
+import os
+import sys
 import tkinter as tk
 from typing import Optional
 
 import customtkinter as ctk
+from PIL import Image
 
 from nexios.utils.file_system import FileSystemManager
+
+
+def _media_path(nombre: str) -> str:
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, "media", nombre)
+    return os.path.join(os.path.dirname(__file__), "..", "..", "media", nombre)
 
 _log = logging.getLogger(__name__)
 
@@ -57,21 +66,30 @@ class MainWindow(ctk.CTk):
         frame = ctk.CTkFrame(self, fg_color=COLOR_PRIMARIO, height=56, corner_radius=0)
         frame.pack(fill="x", side="top")
         frame.pack_propagate(False)
+        # Logo
+        logo_path = _media_path("NEXIOS-LOGO.png")
+        if os.path.isfile(logo_path):
+            try:
+                img = Image.open(logo_path)
+                ctk_logo = ctk.CTkImage(light_image=img, dark_image=img, size=(36, 36))
+                ctk.CTkLabel(frame, image=ctk_logo, text="").pack(side="left", padx=(14, 4), pady=10)
+            except Exception:
+                pass
         ctk.CTkLabel(
             frame,
-            text="⚡ NEXIOS",
+            text="NEXIOS",
             font=ctk.CTkFont(family="Helvetica", size=20, weight="bold"),
             text_color="#ffffff",
-        ).pack(side="left", padx=20, pady=10)
+        ).pack(side="left", padx=(4, 0), pady=10)
         ctk.CTkLabel(
             frame,
             text="Núcleo de Extracción Forense en dispositivos iOS",
             font=ctk.CTkFont(size=11),
             text_color="#a8c4e0",
-        ).pack(side="left", padx=4)
+        ).pack(side="left", padx=10)
         ctk.CTkLabel(
             frame,
-            text=f"v{self.version}  |  MPF Córdoba",
+            text=f"v{self.version}",
             font=ctk.CTkFont(size=10),
             text_color="#6a8faf",
         ).pack(side="right", padx=20)

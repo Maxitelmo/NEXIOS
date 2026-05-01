@@ -1,6 +1,5 @@
 # main.py
 # Punto de entrada de NEXIOS — Núcleo de Extracción Forense en dispositivos iOS
-# Ministerio Público Fiscal de la Nación Córdoba
 # Autor: Maximiliano Telmo  |  GPLv3
 
 import logging
