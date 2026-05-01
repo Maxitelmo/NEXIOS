@@ -4,21 +4,29 @@
 # Salida: dist\NEXIOS_1.0.0\NEXIOS.exe
 
 import os
+import sys
 from pathlib import Path
 
 ROOT = Path(SPECPATH)
 
 block_cipher = None
 
+# ── Data files ──────────────────────────────────────────────────────────────────
+import customtkinter as _ctk
+CTK_DIR = Path(_ctk.__file__).parent
+
+datas = [
+    # Logo e iconos NEXIOS
+    (str(ROOT / 'media' / 'NEXIOS-LOGO.png'), 'media'),
+    # Temas y assets de CustomTkinter
+    (str(CTK_DIR / 'assets'), 'customtkinter/assets'),
+]
+
 a = Analysis(
     [str(ROOT / 'main.py')],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[
-        # Assets gráficos (agregar cuando existan)
-        # (str(ROOT / 'assets' / 'Logo_NEXIOS.png'), 'assets'),
-        # (str(ROOT / 'assets' / 'icono_nexios.ico'), 'assets'),
-    ],
+    datas=datas,
     hiddenimports=[
         # ── versión ──────────────────────────────────────────────────────────
         'version_nexios',
@@ -76,21 +84,30 @@ a = Analysis(
         'nexios.ui.screenshot_panel',
         'nexios.ui.fotos_panel',
 
-        # ── pymobiledevice3 (agregar según warnings de compilación) ──────────
+        # ── pymobiledevice3 ──────────────────────────────────────────────────
         'pymobiledevice3',
         'pymobiledevice3.lockdown',
+        'pymobiledevice3.lockdown_service_provider',
+        'pymobiledevice3.lockdown_service',          # no existe como módulo raíz
         'pymobiledevice3.usbmux',
+        'pymobiledevice3.pair_records',
+        'pymobiledevice3.exceptions',
+        'pymobiledevice3.service_connection',
         'pymobiledevice3.services.afc',
-        'pymobiledevice3.services.screenshotr',
+        'pymobiledevice3.services.screenshot',
+        'pymobiledevice3.services.mobilebackup2',
         'pymobiledevice3.services.installation_proxy',
-        'pymobiledevice3.services.mobile_backup2',
-        'pymobiledevice3.services.dvt.instruments.process_control',
+        'pymobiledevice3.services.lockdown_service',
+        'pymobiledevice3.services.heartbeat',
+        'pymobiledevice3.services.amfi',
 
         # ── stdlib / deps ────────────────────────────────────────────────────
         'sqlite3',
         'plistlib',
         'hashlib',
         'pathlib',
+        'asyncio',
+        'threading',
         'PIL',
         'PIL.Image',
         'PIL.ImageTk',
@@ -107,13 +124,11 @@ a = Analysis(
         'reportlab.platypus.flowables',
         'reportlab.graphics',
         'customtkinter',
-        'jinja2',
-        'jinja2.ext',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['matplotlib', 'numpy', 'pandas', 'scipy', 'IPython', 'notebook'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
@@ -132,13 +147,13 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,                          # Sin consola (app GUI)
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon=str(ROOT / 'assets' / 'icono_nexios.ico'),
+    # icon=str(ROOT / 'media' / 'icono_nexios.ico'),  # habilitar cuando exista .ico
 )
 
 coll = COLLECT(
